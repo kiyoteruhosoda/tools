@@ -92,10 +92,17 @@
     .otp {
       margin-top: 16px;
       display: flex;
-      align-items: center;
+      align-items: flex-end;
       gap: 12px;
       flex-wrap: wrap;
       justify-content: center;
+    }
+
+    .otp-code-wrap {
+      position: relative;
+      width: 70%;
+      padding-bottom: 4px;
+      /* バーの分だけ余白 */
     }
 
     .digits {
@@ -113,9 +120,30 @@
       background: var(--panel);
       padding: 18px 42px;
       cursor: pointer;
-      transition: background 0.15s ease, transform 0.1s ease;
+      transition: transform 0.1s ease;
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-      width: 70%;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .otp-progress-wrap {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: 2px;
+      height: 3px;
+      background: rgba(255, 255, 255, 0.10);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .otp-progress {
+      height: 100%;
+      width: 100%;
+      background: rgb(0, 255, 0);
+      border-radius: 999px;
+      transform-origin: left center;
+      transition: background 0.15s linear;
     }
 
     .digits.hidden-digits {
@@ -147,7 +175,6 @@
     }
 
     .digits:hover {
-      background: rgba(255, 255, 255, 0.08);
       transform: scale(1.01);
     }
 
@@ -349,6 +376,30 @@
       gap: 8px;
       justify-content: flex-end;
     }
+
+    .copy-toast {
+      position: fixed;
+      left: 50%;
+      bottom: 28px;
+      transform: translateX(-50%) translateY(12px);
+      background: rgba(20, 28, 45, 0.96);
+      color: var(--text);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 999px;
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 700;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+      z-index: 9999;
+    }
+
+    .copy-toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
   </style>
 </head>
 
@@ -385,12 +436,21 @@
     </section>
 
     <section class="otp" aria-live="polite">
-      <div class="digits" id="digits" aria-label="One-Time Password">??????</div>
-      <div class="toggleShow" >
+      <div class="otp-code-wrap">
+        <div class="digits" id="digits" aria-label="One-Time Password">??????</div>
+        <div class="otp-progress-wrap" aria-hidden="true">
+          <div class="otp-progress" id="otpProgress"></div>
+        </div>
+      </div>
+
+      <div class="toggleShow">
         <button class="visibility-toggle" id="toggleVisibility" type="button" title="Toggle visibility">Show</button>
       </div>
     </section>
 
+    <div id="copyToast" class="copy-toast hidden" role="status" aria-live="polite">
+      Copied
+    </div>
 
     <div class="status" id="status">
       <div class="dot"></div>
@@ -443,621 +503,669 @@
     </div>
   </div>
 
+  <script>
+    // ========== Page Management ==========
+    const totpPage = document.getElementById('totpPage');
+    const scannerPage = document.getElementById('scannerPage');
 
-
-<script>
-
-// ========== Page Management ==========
-const totpPage = document.getElementById('totpPage');
-const scannerPage = document.getElementById('scannerPage');
-
-function showTotpPage() {
-  totpPage.style.display = 'block';
-  scannerPage.style.display = 'none';
-}
-
-function showScannerPage() {
-  totpPage.style.display = 'none';
-  scannerPage.style.display = 'block';
-}
-
-function setScannerStatus(text, isError = false) {
-  const statusEl = document.getElementById('scannerStatus');
-  const statusText = document.getElementById('scannerStatusText');
-  statusText.textContent = text;
-  statusEl.classList.toggle('error', !!isError);
-}
-
-// ========== QR Scanner Functions ==========
-function parseOtpauth(uri) {
-  try {
-    const u = new URL(uri);
-    if (u.protocol !== 'otpauth:') return null;
-    const type = u.hostname;
-    const label = decodeURIComponent(u.pathname.replace(/^\//, ''));
-    const params = Object.fromEntries(u.searchParams.entries());
-    return { type, label, params };
-  } catch {
-    return null;
-  }
-}
-
-function looksLikeBase32(s) {
-  return /^[A-Z2-7]+=*$/i.test(s.replace(/\s+/g, ''));
-}
-
-async function readImageText(file) {
-  try {
-    if (typeof jsQR !== 'undefined') {
-      const img = new Image();
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-
-      const imageUrl = URL.createObjectURL(file);
-      img.src = imageUrl;
-
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        setTimeout(reject, 5000);
-      });
-
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
-
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const code = jsQR(imageData.data, imageData.width, imageData.height, {
-        inversionAttempts: "dontInvert",
-      });
-
-      URL.revokeObjectURL(imageUrl);
-
-      if (code) {
-        return code.data;
-      } else {
-        const invertedCode = jsQR(imageData.data, imageData.width, imageData.height, {
-          inversionAttempts: "attemptBoth",
-        });
-        return invertedCode ? invertedCode.data : null;
-      }
-    } else {
-      console.error('jsQR library not loaded');
-      return null;
-    }
-  } catch (error) {
-    console.error('QR code read error:', error);
-    return null;
-  }
-}
-
-function handleScannedText(text) {
-  text = (text || '').trim();
-  setScannerStatus('Read: ' + text.slice(0, 60) + (text.length > 60 ? '…' : ''));
-
-  const parsed = parseOtpauth(text);
-  if (parsed && parsed.params && (parsed.params.secret || parsed.params.SECRET)) {
-    const secret = parsed.params.secret || parsed.params.SECRET;
-    const account = parsed.label || parsed.params.issuer || 'scanned';
-    const desc = parsed.params.issuer || '';
-    navigateWith(account, secret, desc);
-    return;
-  }
-
-  if (looksLikeBase32(text)) {
-    navigateWith('scanned', text.replace(/\s+/g, ''), '');
-    return;
-  }
-
-  try {
-    const u = new URL(text);
-    const ps = u.searchParams;
-    if (ps.get('a') && ps.get('s')) {
-      navigateWith(ps.get('a'), ps.get('s'), ps.get('d') || '');
-      return;
-    }
-  } catch { }
-
-  setScannerStatus('Could not extract secret key from scanned content', true);
-}
-
-function navigateWith(account, secret, desc) {
-  const qs = new URLSearchParams({ a: account, s: secret });
-  if (desc) qs.set('d', desc);
-  location.search = qs.toString();
-}
-
-function initScanner() {
-  const video = document.getElementById('video');
-  const startCam = document.getElementById('startCam');
-  const stopCam = document.getElementById('stopCam');
-  const fileInput = document.getElementById('fileInput');
-  const useClipboard = document.getElementById('useClipboard');
-  const debugClipboard = document.getElementById('debugClipboard');
-  const pasteArea = document.getElementById('pasteArea');
-  const usePasted = document.getElementById('usePasted');
-
-  let stream = null;
-  let scanInterval = null;
-
-  async function stopCamera() {
-    if (scanInterval) {
-      clearInterval(scanInterval);
-      scanInterval = null;
-    }
-    if (stream) {
-      stream.getTracks().forEach(t => t.stop());
-      stream = null;
-    }
-    video.srcObject = null;
-  }
-
-  async function startCamera() {
-    if (!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia) {
-      setScannerStatus('Browser does not support camera', true);
-      return;
-    }
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      video.srcObject = stream;
-      setScannerStatus('Camera started');
-
-      const hasDetector = 'BarcodeDetector' in window;
-      if (hasDetector) {
-        const detector = new BarcodeDetector({ formats: ['qr_code'] });
-        scanInterval = setInterval(async () => {
-          try {
-            const frames = await detector.detect(video);
-            if (frames && frames.length) {
-              const raw = frames[0].rawValue;
-              handleScannedText(raw);
-              stopCamera();
-            }
-          } catch (e) { }
-        }, 500);
-      } else {
-        setScannerStatus('BarcodeDetector API not available. Please use File / Clipboard / Manual input.', true);
-      }
-    } catch (err) {
-      console.error(err);
-      setScannerStatus('Failed to access camera', true);
-    }
-  }
-
-  startCam.addEventListener('click', startCamera);
-  stopCam.addEventListener('click', stopCamera);
-
-  fileInput.addEventListener('change', async (ev) => {
-    const f = ev.target.files && ev.target.files[0];
-    if (!f) return;
-    setScannerStatus('Analyzing image...');
-    const txt = await readImageText(f);
-    if (txt) handleScannedText(txt); else setScannerStatus('Could not read QR code', true);
-  });
-
-  useClipboard.addEventListener('click', async () => {
-    if (location.protocol === 'file:') {
-      setScannerStatus('Clipboard functionality is restricted for local files', true);
-      return;
+    function showTotpPage() {
+      totpPage.style.display = 'block';
+      scannerPage.style.display = 'none';
     }
 
-    if (document.hidden || !document.hasFocus()) {
-      setScannerStatus('Page is not active', true);
-      return;
+    function showScannerPage() {
+      totpPage.style.display = 'none';
+      scannerPage.style.display = 'block';
     }
 
-    setScannerStatus('Checking clipboard...');
+    function setScannerStatus(text, isError = false) {
+      const statusEl = document.getElementById('scannerStatus');
+      const statusText = document.getElementById('scannerStatusText');
+      statusText.textContent = text;
+      statusEl.classList.toggle('error', !!isError);
+    }
 
-    try {
+    // ========== QR Scanner Functions ==========
+    function parseOtpauth(uri) {
       try {
-        const text = await navigator.clipboard.readText();
-        if (text && text.trim()) {
-          handleScannedText(text);
+        const u = new URL(uri);
+        if (u.protocol !== 'otpauth:') return null;
+        const type = u.hostname;
+        const label = decodeURIComponent(u.pathname.replace(/^\//, ''));
+        const params = Object.fromEntries(u.searchParams.entries());
+        return { type, label, params };
+      } catch {
+        return null;
+      }
+    }
+
+    function looksLikeBase32(s) {
+      return /^[A-Z2-7]+=*$/i.test(s.replace(/\s+/g, ''));
+    }
+
+    async function readImageText(file) {
+      try {
+        if (typeof jsQR !== 'undefined') {
+          const img = new Image();
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+
+          const imageUrl = URL.createObjectURL(file);
+          img.src = imageUrl;
+
+          await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            setTimeout(reject, 5000);
+          });
+
+          canvas.width = img.width;
+          canvas.height = img.height;
+          ctx.drawImage(img, 0, 0);
+
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(imageData.data, imageData.width, imageData.height, {
+            inversionAttempts: "dontInvert",
+          });
+
+          URL.revokeObjectURL(imageUrl);
+
+          if (code) {
+            return code.data;
+          } else {
+            const invertedCode = jsQR(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: "attemptBoth",
+            });
+            return invertedCode ? invertedCode.data : null;
+          }
+        } else {
+          console.error('jsQR library not loaded');
+          return null;
+        }
+      } catch (error) {
+        console.error('QR code read error:', error);
+        return null;
+      }
+    }
+
+    function handleScannedText(text) {
+      text = (text || '').trim();
+      setScannerStatus('Read: ' + text.slice(0, 60) + (text.length > 60 ? '…' : ''));
+
+      const parsed = parseOtpauth(text);
+      if (parsed && parsed.params && (parsed.params.secret || parsed.params.SECRET)) {
+        const secret = parsed.params.secret || parsed.params.SECRET;
+        const account = parsed.label || parsed.params.issuer || 'scanned';
+        const desc = parsed.params.issuer || '';
+        navigateWith(account, secret, desc);
+        return;
+      }
+
+      if (looksLikeBase32(text)) {
+        navigateWith('scanned', text.replace(/\s+/g, ''), '');
+        return;
+      }
+
+      try {
+        const u = new URL(text);
+        const ps = u.searchParams;
+        if (ps.get('a') && ps.get('s')) {
+          navigateWith(ps.get('a'), ps.get('s'), ps.get('d') || '');
           return;
         }
-      } catch (textErr) {
-        console.log('Text read failed:', textErr);
-      }
+      } catch { }
 
-      try {
-        const clipboardItems = await navigator.clipboard.read();
-        let foundImage = false;
-
-        for (const clipboardItem of clipboardItems) {
-          for (const type of clipboardItem.types) {
-            if (type.startsWith('image/')) {
-              foundImage = true;
-              setScannerStatus('Analyzing image...');
-              const blob = await clipboardItem.getType(type);
-              const txt = await readImageText(blob);
-              if (txt) {
-                handleScannedText(txt);
-                return;
-              }
-            }
-          }
-        }
-
-        if (foundImage) {
-          setScannerStatus('Could not read QR code from image', true);
-        } else {
-          setScannerStatus('No data found in clipboard', true);
-        }
-      } catch (imageErr) {
-        console.log('Image read failed:', imageErr);
-        setScannerStatus('Image read error: ' + imageErr.message, true);
-      }
-    } catch (err) {
-      console.error('Clipboard error:', err);
-      setScannerStatus('Clipboard error: ' + err.message, true);
-    }
-  });
-
-  debugClipboard.addEventListener('click', async () => {
-    if (location.protocol === 'file:') {
-      setScannerStatus('⚠️ Cannot debug for local files', true);
-      return;
+      setScannerStatus('Could not extract secret key from scanned content', true);
     }
 
-    setScannerStatus('🔍 Investigating clipboard contents...');
+    function navigateWith(account, secret, desc) {
+      const qs = new URLSearchParams({ a: account, s: secret });
+      if (desc) qs.set('d', desc);
+      location.search = qs.toString();
+    }
 
-    try {
-      let textContent = '';
-      try {
-        textContent = await navigator.clipboard.readText();
-      } catch (e) {
-        textContent = 'Text read failed: ' + e.message;
+    function initScanner() {
+      const video = document.getElementById('video');
+      const startCam = document.getElementById('startCam');
+      const stopCam = document.getElementById('stopCam');
+      const fileInput = document.getElementById('fileInput');
+      const useClipboard = document.getElementById('useClipboard');
+      const debugClipboard = document.getElementById('debugClipboard');
+      const pasteArea = document.getElementById('pasteArea');
+      const usePasted = document.getElementById('usePasted');
+
+      let stream = null;
+      let scanInterval = null;
+
+      async function stopCamera() {
+        if (scanInterval) {
+          clearInterval(scanInterval);
+          scanInterval = null;
+        }
+        if (stream) {
+          stream.getTracks().forEach(t => t.stop());
+          stream = null;
+        }
+        video.srcObject = null;
       }
 
-      let debugInfo = `📋 Clipboard Investigation Results:\n\n`;
-      debugInfo += `📝 Text content: ${textContent ? textContent.slice(0, 100) + (textContent.length > 100 ? '...' : '') : '(none)'}\n\n`;
+      async function startCamera() {
+        if (!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia) {
+          setScannerStatus('Browser does not support camera', true);
+          return;
+        }
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+          video.srcObject = stream;
+          setScannerStatus('Camera started');
 
-      try {
-        const clipboardItems = await navigator.clipboard.read();
-        debugInfo += `📁 Item count: ${clipboardItems.length}\n\n`;
-
-        for (let i = 0; i < clipboardItems.length; i++) {
-          const item = clipboardItems[i];
-          debugInfo += `📦 Item ${i + 1}:\n`;
-          debugInfo += `   Type count: ${item.types.length}\n`;
-
-          for (const type of item.types) {
-            debugInfo += `   - ${type}\n`;
-
-            if (type.startsWith('image/')) {
+          const hasDetector = 'BarcodeDetector' in window;
+          if (hasDetector) {
+            const detector = new BarcodeDetector({ formats: ['qr_code'] });
+            scanInterval = setInterval(async () => {
               try {
-                const blob = await item.getType(type);
-                debugInfo += `     Size: ${blob.size} bytes\n`;
-                debugInfo += `     Actual type: ${blob.type}\n`;
+                const frames = await detector.detect(video);
+                if (frames && frames.length) {
+                  const raw = frames[0].rawValue;
+                  handleScannedText(raw);
+                  stopCamera();
+                }
+              } catch (e) { }
+            }, 500);
+          } else {
+            setScannerStatus('BarcodeDetector API not available. Please use File / Clipboard / Manual input.', true);
+          }
+        } catch (err) {
+          console.error(err);
+          setScannerStatus('Failed to access camera', true);
+        }
+      }
 
-                setScannerStatus('🔍 Attempting QR code read from image...');
-                const qrResult = await readImageText(blob);
-                if (qrResult) {
-                  debugInfo += `     ✅ QR read success: ${qrResult.slice(0, 50)}${qrResult.length > 50 ? '...' : ''}\n`;
-                } else {
-                  debugInfo += `     ❌ QR read failed\n`;
+      startCam.addEventListener('click', startCamera);
+      stopCam.addEventListener('click', stopCamera);
 
-                  try {
-                    debugInfo += `     🔍 Detailed debugging...\n`;
-                    const img = new Image();
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
+      fileInput.addEventListener('change', async (ev) => {
+        const f = ev.target.files && ev.target.files[0];
+        if (!f) return;
+        setScannerStatus('Analyzing image...');
+        const txt = await readImageText(f);
+        if (txt) handleScannedText(txt); else setScannerStatus('Could not read QR code', true);
+      });
 
-                    const imageUrl = URL.createObjectURL(blob);
-                    img.src = imageUrl;
+      useClipboard.addEventListener('click', async () => {
+        if (location.protocol === 'file:') {
+          setScannerStatus('Clipboard functionality is restricted for local files', true);
+          return;
+        }
 
-                    await new Promise((resolve, reject) => {
-                      img.onload = resolve;
-                      img.onerror = reject;
-                      setTimeout(reject, 5000);
-                    });
+        if (document.hidden || !document.hasFocus()) {
+          setScannerStatus('Page is not active', true);
+          return;
+        }
 
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                    ctx.drawImage(img, 0, 0);
+        setScannerStatus('Checking clipboard...');
 
-                    debugInfo += `     Image size: ${img.width}x${img.height}px\n`;
+        try {
+          try {
+            const text = await navigator.clipboard.readText();
+            if (text && text.trim()) {
+              handleScannedText(text);
+              return;
+            }
+          } catch (textErr) {
+            console.log('Text read failed:', textErr);
+          }
 
-                    if (typeof jsQR === 'undefined') {
-                      debugInfo += `     ❌ jsQR library not loaded\n`;
-                    } else {
-                      debugInfo += `     ✅ jsQR library available\n`;
+          try {
+            const clipboardItems = await navigator.clipboard.read();
+            let foundImage = false;
 
-                      try {
-                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                        const code = jsQR(imageData.data, imageData.width, imageData.height, {
-                          inversionAttempts: "dontInvert",
-                        });
-
-                        if (code) {
-                          debugInfo += `     🎯 jsQR direct scan success: ${code.data.slice(0, 50)}${code.data.length > 50 ? '...' : ''}\n`;
-                        } else {
-                          debugInfo += `     ❌ jsQR direct scan failed\n`;
-
-                          const invertedCode = jsQR(imageData.data, imageData.width, imageData.height, {
-                            inversionAttempts: "attemptBoth",
-                          });
-
-                          if (invertedCode) {
-                            debugInfo += `     🎯 jsQR inverted scan success: ${invertedCode.data.slice(0, 50)}${invertedCode.data.length > 50 ? '...' : ''}\n`;
-                          } else {
-                            debugInfo += `     ❌ jsQR inverted scan failed\n`;
-                            debugInfo += `     💡 QR code may be blurry, low contrast, or partially cropped\n`;
-                          }
-                        }
-                      } catch (scanErr) {
-                        debugInfo += `     ❌ jsQR scan error: ${scanErr.message}\n`;
-                      }
-                    }
-
-                    URL.revokeObjectURL(imageUrl);
-                  } catch (debugErr) {
-                    debugInfo += `     ❌ Debug error: ${debugErr.message}\n`;
+            for (const clipboardItem of clipboardItems) {
+              for (const type of clipboardItem.types) {
+                if (type.startsWith('image/')) {
+                  foundImage = true;
+                  setScannerStatus('Analyzing image...');
+                  const blob = await clipboardItem.getType(type);
+                  const txt = await readImageText(blob);
+                  if (txt) {
+                    handleScannedText(txt);
+                    return;
                   }
                 }
-              } catch (e) {
-                debugInfo += `     Error: ${e.message}\n`;
               }
             }
+
+            if (foundImage) {
+              setScannerStatus('Could not read QR code from image', true);
+            } else {
+              setScannerStatus('No data found in clipboard', true);
+            }
+          } catch (imageErr) {
+            console.log('Image read failed:', imageErr);
+            setScannerStatus('Image read error: ' + imageErr.message, true);
           }
-          debugInfo += '\n';
+        } catch (err) {
+          console.error('Clipboard error:', err);
+          setScannerStatus('Clipboard error: ' + err.message, true);
         }
-      } catch (e) {
-        debugInfo += `❌ Clipboard read error: ${e.message}\n`;
+      });
+
+      debugClipboard.addEventListener('click', async () => {
+        if (location.protocol === 'file:') {
+          setScannerStatus('⚠️ Cannot debug for local files', true);
+          return;
+        }
+
+        setScannerStatus('🔍 Investigating clipboard contents...');
+
+        try {
+          let textContent = '';
+          try {
+            textContent = await navigator.clipboard.readText();
+          } catch (e) {
+            textContent = 'Text read failed: ' + e.message;
+          }
+
+          let debugInfo = `📋 Clipboard Investigation Results:\n\n`;
+          debugInfo += `📝 Text content: ${textContent ? textContent.slice(0, 100) + (textContent.length > 100 ? '...' : '') : '(none)'}\n\n`;
+
+          try {
+            const clipboardItems = await navigator.clipboard.read();
+            debugInfo += `📁 Item count: ${clipboardItems.length}\n\n`;
+
+            for (let i = 0; i < clipboardItems.length; i++) {
+              const item = clipboardItems[i];
+              debugInfo += `📦 Item ${i + 1}:\n`;
+              debugInfo += `   Type count: ${item.types.length}\n`;
+
+              for (const type of item.types) {
+                debugInfo += `   - ${type}\n`;
+
+                if (type.startsWith('image/')) {
+                  try {
+                    const blob = await item.getType(type);
+                    debugInfo += `     Size: ${blob.size} bytes\n`;
+                    debugInfo += `     Actual type: ${blob.type}\n`;
+
+                    setScannerStatus('🔍 Attempting QR code read from image...');
+                    const qrResult = await readImageText(blob);
+                    if (qrResult) {
+                      debugInfo += `     ✅ QR read success: ${qrResult.slice(0, 50)}${qrResult.length > 50 ? '...' : ''}\n`;
+                    } else {
+                      debugInfo += `     ❌ QR read failed\n`;
+
+                      try {
+                        debugInfo += `     🔍 Detailed debugging...\n`;
+                        const img = new Image();
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+
+                        const imageUrl = URL.createObjectURL(blob);
+                        img.src = imageUrl;
+
+                        await new Promise((resolve, reject) => {
+                          img.onload = resolve;
+                          img.onerror = reject;
+                          setTimeout(reject, 5000);
+                        });
+
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        ctx.drawImage(img, 0, 0);
+
+                        debugInfo += `     Image size: ${img.width}x${img.height}px\n`;
+
+                        if (typeof jsQR === 'undefined') {
+                          debugInfo += `     ❌ jsQR library not loaded\n`;
+                        } else {
+                          debugInfo += `     ✅ jsQR library available\n`;
+
+                          try {
+                            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                              inversionAttempts: "dontInvert",
+                            });
+
+                            if (code) {
+                              debugInfo += `     🎯 jsQR direct scan success: ${code.data.slice(0, 50)}${code.data.length > 50 ? '...' : ''}\n`;
+                            } else {
+                              debugInfo += `     ❌ jsQR direct scan failed\n`;
+
+                              const invertedCode = jsQR(imageData.data, imageData.width, imageData.height, {
+                                inversionAttempts: "attemptBoth",
+                              });
+
+                              if (invertedCode) {
+                                debugInfo += `     🎯 jsQR inverted scan success: ${invertedCode.data.slice(0, 50)}${invertedCode.data.length > 50 ? '...' : ''}\n`;
+                              } else {
+                                debugInfo += `     ❌ jsQR inverted scan failed\n`;
+                                debugInfo += `     💡 QR code may be blurry, low contrast, or partially cropped\n`;
+                              }
+                            }
+                          } catch (scanErr) {
+                            debugInfo += `     ❌ jsQR scan error: ${scanErr.message}\n`;
+                          }
+                        }
+
+                        URL.revokeObjectURL(imageUrl);
+                      } catch (debugErr) {
+                        debugInfo += `     ❌ Debug error: ${debugErr.message}\n`;
+                      }
+                    }
+                  } catch (e) {
+                    debugInfo += `     Error: ${e.message}\n`;
+                  }
+                }
+              }
+              debugInfo += '\n';
+            }
+          } catch (e) {
+            debugInfo += `❌ Clipboard read error: ${e.message}\n`;
+          }
+
+          pasteArea.value = debugInfo;
+          setScannerStatus('🔍 Clipboard investigation complete! Results displayed in text area.');
+
+        } catch (err) {
+          setScannerStatus(`❌ Investigation error: ${err.message}`, true);
+        }
+      });
+
+      usePasted.addEventListener('click', () => {
+        const v = pasteArea.value && pasteArea.value.trim();
+        if (!v) {
+          setScannerStatus('Please enter content in the text area', true);
+          return;
+        }
+        handleScannedText(v);
+      });
+    }
+
+    // ========== TOTP Helper Functions ==========
+    const CIRCUM = 282.743;
+    const total = 30_000; // 30 second cycle
+
+    async function syncServerTime(serverUrl = "https://n.nolumia.com:1123/time") {
+      try {
+        const t0 = Date.now();
+        const resp = await fetch(serverUrl, { cache: "no-store" });
+        const text = await resp.text();
+        const t1 = Date.now();
+
+        const data = JSON.parse(text);
+        const serverUnixMs =
+          Number(data.server_time_unix_ms) || (Number(data.server_time_unix) * 1000);
+
+        if (!Number.isFinite(serverUnixMs)) throw new Error("Invalid time response");
+
+        const rtt = (t1 - t0) / 2;
+        const localEstimate = t0 + rtt;
+        const driftMs = 0;
+
+        console.log("[TOTP] Time drift (ms):", driftMs);
+        return driftMs;
+      } catch (err) {
+        console.warn("Server time sync failed. Using local time.", err);
+        return 0;
       }
-
-      pasteArea.value = debugInfo;
-      setScannerStatus('🔍 Clipboard investigation complete! Results displayed in text area.');
-
-    } catch (err) {
-      setScannerStatus(`❌ Investigation error: ${err.message}`, true);
     }
-  });
 
-  usePasted.addEventListener('click', () => {
-    const v = pasteArea.value && pasteArea.value.trim();
-    if (!v) {
-      setScannerStatus('Please enter content in the text area', true);
-      return;
+    function base32ToBytes(base32) {
+      const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+      const cleaned = base32.replace(/=+$/, "").toUpperCase();
+      let bits = "";
+      for (const c of cleaned) {
+        const val = alphabet.indexOf(c);
+        if (val === -1) throw new Error("Invalid Base32");
+        bits += val.toString(2).padStart(5, "0");
+      }
+      const bytes = [];
+      for (let i = 0; i + 8 <= bits.length; i += 8)
+        bytes.push(parseInt(bits.substring(i, i + 8), 2));
+      return new Uint8Array(bytes);
     }
-    handleScannedText(v);
-  });
-}
 
-// ========== TOTP Helper Functions ==========
-const CIRCUM = 282.743;
-const total = 30_000; // 30 second cycle
+    async function hmacSha1(keyBytes, msgBytes) {
+      const key = await crypto.subtle.importKey(
+        "raw", keyBytes, { name: "HMAC", hash: "SHA-1" }, false, ["sign"]
+      );
+      const sig = await crypto.subtle.sign("HMAC", key, msgBytes);
+      return new Uint8Array(sig);
+    }
 
-async function syncServerTime(serverUrl = "https://n.nolumia.com:1123/time") {
-  try {
-    const t0 = Date.now();
-    const resp = await fetch(serverUrl, { cache: "no-store" });
-    const text = await resp.text();
-    const t1 = Date.now();
-
-    const data = JSON.parse(text);
-    const serverUnixMs =
-      Number(data.server_time_unix_ms) || (Number(data.server_time_unix) * 1000);
-
-    if (!Number.isFinite(serverUnixMs)) throw new Error("Invalid time response");
-
-    const rtt = (t1 - t0) / 2;
-    const localEstimate = t0 + rtt;
-    const driftMs = serverUnixMs - localEstimate;
-
-    console.log("[TOTP] Time drift (ms):", driftMs);
-    return driftMs;
-  } catch (err) {
-    console.warn("Server time sync failed. Using local time.", err);
-    return 0;
-  }
-}
-
-function base32ToBytes(base32) {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  const cleaned = base32.replace(/=+$/, "").toUpperCase();
-  let bits = "";
-  for (const c of cleaned) {
-    const val = alphabet.indexOf(c);
-    if (val === -1) throw new Error("Invalid Base32");
-    bits += val.toString(2).padStart(5, "0");
-  }
-  const bytes = [];
-  for (let i = 0; i + 8 <= bits.length; i += 8)
-    bytes.push(parseInt(bits.substring(i, i + 8), 2));
-  return new Uint8Array(bytes);
-}
-
-async function hmacSha1(keyBytes, msgBytes) {
-  const key = await crypto.subtle.importKey(
-    "raw", keyBytes, { name: "HMAC", hash: "SHA-1" }, false, ["sign"]
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, msgBytes);
-  return new Uint8Array(sig);
-}
-
-function lerpColor3(t) {
-  const c1 = [0, 0, 255], c2 = [0, 255, 0], c3 = [255, 0, 0];
-  let mix;
-  if (t < 0.5) {
-    let k = t * 2;
-    mix = c1.map((v, i) => Math.round(v + (c2[i] - v) * k));
-  } else {
-    let k = (t - 0.5) * 2;
-    mix = c2.map((v, i) => Math.round(v + (c3[i] - v) * k));
-  }
-  return `rgb(${mix.join(",")})`;
-}
-
-// ========== Initial Check ==========
-const qs = new URLSearchParams(location.search);
-const accountParam = qs.get('a');
-const descriptionParam = qs.get('d');
-
-// Update page title with account name
-if (accountParam) {
-  document.title = `TOTP - ${descriptionParam}(${accountParam})`;
-}
-
-if (!qs.get('a') || !qs.get('s')) {
-  showScannerPage();
-  setScannerStatus('Please specify secret key via QR / File / Clipboard / Camera / Manual input');
-  initScanner();
-} else {
-  showTotpPage();
-  // Continue with TOTP generation
-  (async function () {
-    const account = accountParam || "(Unspecified)";
-    const secret = qs.get("s") || "";
-    const desc = qs.get("d") || "";
-    const el = {
-      account: document.getElementById("account"),
-      description: document.getElementById("description"),
-      serverTime: document.getElementById("serverTime"),
-      clientTime: document.getElementById("clientTime"),
-      remain: document.getElementById("remain"),
-      circle: document.querySelector(".ring circle.progress"),
-      digits: document.getElementById("digits"),
-      status: document.getElementById("status"),
-      statusText: document.getElementById("statusText"),
-      title: document.getElementById('title')
-    };
-
-    el.account.textContent = account;
-    el.description.textContent = desc;
-    el.title.textContent = `${desc} (${account})`;
-
-    // TOTP表示/非表示の制御
-    let isVisible = true;  // デフォルト
-    let currentOTP = "------";
-    const toggleBtn = document.getElementById("toggleVisibility");
-    
-    function updateVisibility() {
-      if (isVisible) {
-        el.digits.classList.remove("hidden-digits");
-        el.digits.textContent = currentOTP;
-        toggleBtn.textContent = "Hide";
-        toggleBtn.title = "Hide TOTP";
+    function lerpColor3(t) {
+      const c1 = [0, 0, 255], c2 = [0, 255, 0], c3 = [255, 0, 0];
+      let mix;
+      if (t < 0.5) {
+        let k = t * 2;
+        mix = c1.map((v, i) => Math.round(v + (c2[i] - v) * k));
       } else {
-        el.digits.classList.add("hidden-digits");
-        el.digits.textContent = "------";
-        toggleBtn.textContent = "Show";
-        toggleBtn.title = "Show TOTP";
+        let k = (t - 0.5) * 2;
+        mix = c2.map((v, i) => Math.round(v + (c3[i] - v) * k));
       }
-    }
-    
-    function updateOTPDisplay(otp) {
-      currentOTP = otp;
-      if (isVisible) {
-        el.digits.textContent = otp;
-      }
-      // 非表示の場合は"------"のまま維持
-    }
-    
-    toggleBtn.addEventListener("click", () => {
-      isVisible = !isVisible;
-      updateVisibility();
-    });
-
-    if (!secret) {
-      el.status.classList.add("error");
-      el.statusText.textContent = "Query parameter ?s=SECRET is required.";
-      return;
+      return `rgb(${mix.join(",")})`;
     }
 
-    el.statusText.textContent = "Syncing time with server…";
-    const driftMs = await syncServerTime("https://n.nolumia.com:1123/otp-time");
-    el.statusText.textContent = driftMs === 0 ? "Using local time" : "Time sync complete";
+    // ========== Initial Check ==========
+    const qs = new URLSearchParams(location.search);
+    const accountParam = qs.get('a');
+    const descriptionParam = qs.get('d');
 
-
-    async function generateTOTPWithDrift(secretBase32, period = 30, digits = 6) {
-      const secretBytes = base32ToBytes(secretBase32);
-      const timeStep = Math.floor((Date.now() + driftMs) / 1000 / period);
-      const msg = new ArrayBuffer(8);
-      const view = new DataView(msg);
-      view.setUint32(4, timeStep);
-      const hash = await hmacSha1(secretBytes, new Uint8Array(msg));
-      const offset = hash[hash.length - 1] & 0xf;
-      const binary =
-        ((hash[offset] & 0x7f) << 24) |
-        ((hash[offset + 1] & 0xff) << 16) |
-        ((hash[offset + 2] & 0xff) << 8) |
-        (hash[offset + 3] & 0xff);
-      const otp = binary % 10 ** digits;
-      return otp.toString().padStart(digits, "0");
+    // Update page title with account name
+    if (accountParam) {
+      document.title = `TOTP - ${descriptionParam}(${accountParam})`;
     }
 
-    function startAnim() {
-      function frame() {
-        const now = Date.now() + driftMs;
-        const remainMs = total - (now % total);
-        const remainSec = Math.ceil(remainMs / 1000);
-        el.remain.textContent = remainSec;
+    if (!qs.get('a') || !qs.get('s')) {
+      showScannerPage();
+      setScannerStatus('Please specify secret key via QR / File / Clipboard / Camera / Manual input');
+      initScanner();
+    } else {
+      showTotpPage();
+      // Continue with TOTP generation
+      (async function () {
+        const account = accountParam || "(Unspecified)";
+        const secret = qs.get("s") || "";
+        const desc = qs.get("d") || "";
+        const el = {
+          account: document.getElementById("account"),
+          description: document.getElementById("description"),
+          serverTime: document.getElementById("serverTime"),
+          clientTime: document.getElementById("clientTime"),
+          remain: document.getElementById("remain"),
+          circle: document.querySelector(".ring circle.progress"),
+          digits: document.getElementById("digits"),
+          status: document.getElementById("status"),
+          statusText: document.getElementById("statusText"),
+          title: document.getElementById('title'),
+          progressBar: document.getElementById("otpProgress"),
+          copyToast: document.getElementById("copyToast"),
+        };
 
-        const pct = (now % total) / total;
+        el.account.textContent = account;
+        el.description.textContent = desc;
+        el.title.textContent = `${desc} (${account})`;
 
-        el.circle.style.strokeDashoffset = (CIRCUM * (1 - pct)).toFixed(2);
+        // TOTP表示/非表示の制御
+        let isVisible = true;  // デフォルト
+        let currentOTP = "------";
+        const toggleBtn = document.getElementById("toggleVisibility");
 
-        const color = lerpColor3(pct);
-        el.circle.style.stroke = color;
-
-        // ★追加：#digits の背景を円と同じ色にする
-        el.digits.style.background = color;
-
-        // （任意）背景が明るいときの可読性が気になるなら
-        // el.digits.style.color = "#0b1220";
-        // （あるいは pct に応じて白/黒を切り替えるロジックでもOK）
-
-        requestAnimationFrame(frame);
-      }
-      requestAnimationFrame(frame);
-    }
-
-
-    async function loop() {
-      let last = "";
-      while (true) {
-        const otp = await generateTOTPWithDrift(secret);
-        if (otp !== last) {
-          updateOTPDisplay(otp);
-          el.statusText.textContent = "Generating TOTP";
-          last = otp;
+        function updateVisibility() {
+          if (isVisible) {
+            el.digits.classList.remove("hidden-digits");
+            el.digits.textContent = currentOTP;
+            toggleBtn.textContent = "Hide";
+            toggleBtn.title = "Hide TOTP";
+          } else {
+            el.digits.classList.add("hidden-digits");
+            el.digits.textContent = "------";
+            toggleBtn.textContent = "Show";
+            toggleBtn.title = "Show TOTP";
+          }
         }
-        await new Promise(r => setTimeout(r, 200));
-      }
+
+        function updateOTPDisplay(otp) {
+          currentOTP = otp;
+          if (isVisible) {
+            el.digits.textContent = otp;
+          }
+          // 非表示の場合は"------"のまま維持
+        }
+
+        let toastTimer = null;
+
+        function showCopyToast(message = "Copied") {
+          el.copyToast.textContent = message;
+          el.copyToast.classList.remove("hidden");
+          el.copyToast.classList.add("show");
+
+          if (toastTimer) clearTimeout(toastTimer);
+
+          toastTimer = setTimeout(() => {
+            el.copyToast.classList.remove("show");
+            setTimeout(() => {
+              el.copyToast.classList.add("hidden");
+            }, 180);
+          }, 1400);
+        }
+
+        toggleBtn.addEventListener("click", () => {
+          isVisible = !isVisible;
+          updateVisibility();
+        });
+
+        if (!secret) {
+          el.status.classList.add("error");
+          el.statusText.textContent = "Query parameter ?s=SECRET is required.";
+          return;
+        }
+
+        let driftMs = 0;
+        el.statusText.textContent = "Generating TOTP";
+
+        syncServerTime("https://n.nolumia.com:1123/otp-time")
+          .then((syncedDriftMs) => {
+            driftMs = syncedDriftMs;
+
+            if (syncedDriftMs !== 0) {
+              serverTimeAvailable = true;
+            }
+
+            el.statusText.textContent = syncedDriftMs === 0
+              ? "Using local time"
+              : "Time sync complete";
+
+            setTimeout(() => {
+              el.statusText.textContent = "Generating TOTP";
+            }, 1500);
+          })
+          .catch((err) => {
+            console.warn("Background time sync failed.", err);
+
+            serverTimeAvailable = false; // 念のため
+
+            el.statusText.textContent = "Using local time";
+            setTimeout(() => {
+              el.statusText.textContent = "Generating TOTP";
+            }, 1500);
+          });
+
+        async function generateTOTPWithDrift(secretBase32, period = 30, digits = 6) {
+          const secretBytes = base32ToBytes(secretBase32);
+          const timeStep = Math.floor((Date.now() + driftMs) / 1000 / period);
+          const msg = new ArrayBuffer(8);
+          const view = new DataView(msg);
+          view.setUint32(4, timeStep);
+          const hash = await hmacSha1(secretBytes, new Uint8Array(msg));
+          const offset = hash[hash.length - 1] & 0xf;
+          const binary =
+            ((hash[offset] & 0x7f) << 24) |
+            ((hash[offset + 1] & 0xff) << 16) |
+            ((hash[offset + 2] & 0xff) << 8) |
+            (hash[offset + 3] & 0xff);
+          const otp = binary % 10 ** digits;
+          return otp.toString().padStart(digits, "0");
+        }
+
+        function startAnim() {
+          function frame() {
+            const now = Date.now() + driftMs;
+            const remainMs = total - (now % total);
+            const remainSec = Math.ceil(remainMs / 1000);
+            el.remain.textContent = remainSec;
+
+            const pct = (now % total) / total;          // 0 -> 1
+            const remainRatio = 1 - pct;                // 1 -> 0
+
+            // 円リングはそのまま使う
+            el.circle.style.strokeDashoffset = (CIRCUM * (1 - pct)).toFixed(2);
+            const color = lerpColor3(pct);
+            el.circle.style.stroke = color;
+
+            // 横プログレスバーを更新
+            el.progressBar.style.width = `${remainRatio * 100}%`;
+            el.progressBar.style.background = color;
+
+            requestAnimationFrame(frame);
+          }
+          requestAnimationFrame(frame);
+        }
+
+        async function loop() {
+          let last = "";
+          while (true) {
+            const otp = await generateTOTPWithDrift(secret);
+            if (otp !== last) {
+              updateOTPDisplay(otp);
+              el.statusText.textContent = "Generating TOTP";
+              last = otp;
+            }
+            await new Promise(r => setTimeout(r, 200));
+          }
+        }
+
+        let serverTimeAvailable = false;
+
+        setInterval(() => {
+          const d = new Date();
+          const p = n => String(n).padStart(2, "0");
+
+          el.clientTime.textContent =
+            `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
+            + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+
+          if (serverTimeAvailable) {
+            const serverEst = new Date(d.getTime() + driftMs);
+            el.serverTime.textContent =
+              `${serverEst.getUTCFullYear()}-${p(serverEst.getUTCMonth() + 1)}-${p(serverEst.getUTCDate())} `
+              + `${p(serverEst.getUTCHours())}:${p(serverEst.getUTCMinutes())}:${p(serverEst.getUTCSeconds())} UTC`;
+          }
+        }, 500);
+
+        el.digits.addEventListener("click", async () => {
+          const textToCopy = isVisible ? el.digits.textContent : currentOTP;
+          if (!textToCopy || textToCopy.includes("-") || textToCopy.includes("?")) return;
+
+          try {
+            await navigator.clipboard.writeText(textToCopy);
+            el.statusText.textContent = isVisible ? "Copied" : "Copied (hidden)";
+            showCopyToast(isVisible ? "Copied" : "Copied (hidden)");
+            setTimeout(() => {
+              el.statusText.textContent = "Generating TOTP";
+            }, 2000);
+          } catch {
+            el.statusText.textContent = "Copy failed";
+            showCopyToast("Copy failed");
+          }
+        });
+
+        // Initial startup
+        updateVisibility(); // 初期表示状態を設定
+        startAnim();
+        loop();
+      })();
     }
-
-    setInterval(() => {
-      const d = new Date();
-      const p = n => String(n).padStart(2, "0");
-      el.clientTime.textContent =
-        `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
-        + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-      const serverEst = new Date(d.getTime() + driftMs);
-      el.serverTime.textContent =
-        `${serverEst.getUTCFullYear()}-${p(serverEst.getUTCMonth() + 1)}-${p(serverEst.getUTCDate())} `
-        + `${p(serverEst.getUTCHours())}:${p(serverEst.getUTCMinutes())}:${p(serverEst.getUTCSeconds())} UTC`;
-    }, 500);
-
-
-    el.digits.addEventListener("click", async () => {
-      // 非表示の場合でも実際のOTP値をコピー
-      const textToCopy = isVisible ? el.digits.textContent : currentOTP;
-      if (!textToCopy || textToCopy.includes("-") || textToCopy.includes("?")) return;
-      await navigator.clipboard.writeText(textToCopy);
-      el.statusText.textContent = isVisible ? "Copied" : "Copied (hidden)";
-      setTimeout(() => el.statusText.textContent = "Generating TOTP", 2000);
-    });
-
-    // Initial startup
-    updateVisibility(); // 初期表示状態を設定
-    startAnim();
-    loop();
-  })();
-}
-</script>
-
-
+  </script>
 </body>
-
 </html>
