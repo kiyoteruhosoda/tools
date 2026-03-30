@@ -16,7 +16,7 @@
 -->
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <script>
-const APP_VERSION = '1.0.1';
+const APP_VERSION = '1.0.2';
 </script>
 
 <style>
@@ -180,8 +180,10 @@ const APP_VERSION = '1.0.1';
   }
   #editor-pane.hidden {
     width: 0 !important;
+    min-width: 0 !important;
     opacity: 0;
     border-right: none;
+    padding: 0;
     pointer-events: none;
   }
 
@@ -240,6 +242,7 @@ const APP_VERSION = '1.0.1';
     transition: background var(--transition);
   }
   #resizer:hover, #resizer.dragging { background: var(--accent); }
+  #editor-pane.hidden + #resizer { display: none; }
 
   /* ── Preview pane ── */
   #preview-pane {
@@ -923,7 +926,6 @@ function toggleEditor() {
   state.editorVisible = !state.editorVisible;
   editorPane.classList.toggle('hidden', !state.editorVisible);
   btnToggle.classList.toggle('active', state.editorVisible);
-  resizerEl.style.display = state.editorVisible ? '' : 'none';
 }
 btnToggle.addEventListener('click', toggleEditor);
 
