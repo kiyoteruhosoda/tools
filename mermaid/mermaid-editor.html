@@ -17,7 +17,7 @@
 -->
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <script>
-const APP_VERSION = '1.3.2';
+const APP_VERSION = '1.3.3';
 </script>
 
 <style>
@@ -773,56 +773,27 @@ function applyTransform() {
 }
 
 // ── syncContainerBg ───────────────────────────
-// Mermaid injects a background <rect> into the SVG that carries the theme's
-// background color. We read that color and apply it to #diagram-container so
-// the padding area matches the diagram background regardless of theme.
-// Without this, switching to a light theme leaves the container in dark mode.
+// Sets #diagram-container background/border to match the active UI theme.
+// We intentionally do NOT read the SVG's own background rect because:
+//   - Mermaid diagram types (e.g. sequenceDiagram) use slightly off-white
+//     fills (e.g. #f4f4f4) that differ from the intended theme background.
+//   - The SVG already draws its own background internally; the container only
+//     needs to match for the padding area around the SVG.
+// Theme-to-background mapping mirrors UI_THEMES.
+const CONTAINER_BG = {
+  dark:    { bg: '#0d1117', dark: true  },
+  default: { bg: '#ffffff', dark: false },
+  neutral: { bg: '#f5f5f5', dark: false },
+  forest:  { bg: '#1a2e1a', dark: true  },
+  base:    { bg: '#fafafa', dark: false },
+};
+
 function syncContainerBg() {
-  const svgEl = diagramEl.querySelector('svg');
-  if (!svgEl) return;
-
-  // Mermaid's background rect is always the first <rect> with a fill that
-  // isn't "none" or transparent. It may also appear as a direct child rect.
-  const bgRect =
-    svgEl.querySelector(':scope > rect[fill]') ||
-    svgEl.querySelector('rect[fill]');
-
-  let bg = null;
-  if (bgRect) {
-    const fill = bgRect.getAttribute('fill');
-    if (fill && fill !== 'none' && fill !== 'transparent') {
-      bg = fill;
-    }
-  }
-
-  // Fallback: derive from selected theme name
-  if (!bg) {
-    const theme = themeSelect.value;
-    bg = (theme === 'dark') ? '#1f2020' : '#ffffff';
-  }
-
-  diagramEl.style.background = bg;
-
-  // Also update the border to suit the bg lightness
-  const isDark = isColorDark(bg);
-  diagramEl.style.borderColor = isDark ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.15)';
-  diagramEl.style.boxShadow = isDark
-    ? '0 8px 32px rgba(0,0,0,.5)'
-    : '0 8px 32px rgba(0,0,0,.15)';
-}
-
-// Simple luminance check to decide if a color is dark or light.
-function isColorDark(color) {
-  const tmp = document.createElement('div');
-  tmp.style.cssText = `color:${color};position:absolute;visibility:hidden`;
-  document.body.appendChild(tmp);
-  const computed = getComputedStyle(tmp).color; // always "rgb(r, g, b)"
-  document.body.removeChild(tmp);
-  const m = computed.match(/\d+/g);
-  if (!m) return true;
-  const [r, g, b] = m.map(Number);
-  // Relative luminance (sRGB)
-  return (0.299 * r + 0.587 * g + 0.114 * b) < 128;
+  const theme = themeSelect.value;
+  const { bg, dark } = CONTAINER_BG[theme] ?? CONTAINER_BG.default;
+  diagramEl.style.background  = bg;
+  diagramEl.style.borderColor = dark ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.15)';
+  diagramEl.style.boxShadow   = dark ? '0 8px 32px rgba(0,0,0,.5)' : '0 8px 32px rgba(0,0,0,.15)';
 }
 
 // ── calibrateDisplayBase ──────────────────────
