@@ -17,7 +17,7 @@
 -->
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <script>
-const APP_VERSION = '1.3.1';
+const APP_VERSION = '1.3.2';
 </script>
 
 <style>
@@ -1325,7 +1325,7 @@ const UI_THEMES = {
     '--text-dim':  '#7d8590',
     '--accent':    '#2f81f7',
     '--accent-glow':'rgba(47,129,247,.25)',
-    '--editor-bg': '#1e2330',
+    '--editor-bg': '#0d1117',
     '--editor-fg': '#c9d1d9',
   },
   default: {
@@ -1468,15 +1468,24 @@ document.addEventListener('pointerdown', e => {
 // ──────────────────────────────────────────────
 //  Drag & drop .mmd / .txt onto editor
 // ──────────────────────────────────────────────
-editorPane.addEventListener('dragover', e => {
+let dragCounter = 0; // counts nested dragenter/dragleave to avoid flicker
+
+editorPane.addEventListener('dragenter', e => {
   e.preventDefault();
+  dragCounter++;
   editorPane.classList.add('drag-over');
 });
-editorPane.addEventListener('dragleave', e => {
-  if (!editorPane.contains(e.relatedTarget)) editorPane.classList.remove('drag-over');
+editorPane.addEventListener('dragleave', () => {
+  dragCounter--;
+  if (dragCounter <= 0) {
+    dragCounter = 0;
+    editorPane.classList.remove('drag-over');
+  }
 });
+editorPane.addEventListener('dragover', e => { e.preventDefault(); });
 editorPane.addEventListener('drop', e => {
   e.preventDefault();
+  dragCounter = 0;
   editorPane.classList.remove('drag-over');
   const file = e.dataTransfer.files[0];
   if (!file) return;
