@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Flutter Builder Management v1.0.0</title>
+  <title>Flutter Builder Management v1.1.0</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #1a1a1a; font-size: 14px; }
@@ -24,6 +24,7 @@
     .dot-stopped { background: #888; }
     .dot-error { background: #E24B4A; }
     .dot-unknown { background: #EF9F27; }
+    .dot-notfound { background: #bbb; }
     .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
     .upload-box { border: 1px dashed #bbb; border-radius: 8px; padding: 16px; text-align: center; cursor: pointer; transition: background 0.15s; }
     .upload-box:hover { background: #f5f5f5; }
@@ -57,7 +58,8 @@
     .changelog-btn:hover { color: #1a1a1a; }
     .changelog { margin-top: 10px; background: #f5f5f5; border-radius: 8px; padding: 12px 14px; display: none; }
     .changelog.open { display: block; }
-    .changelog-item { font-size: 12px; color: #666; line-height: 1.8; }
+    .changelog-item { font-size: 12px; color: #666; line-height: 1.8; margin-bottom: 8px; }
+    .changelog-item:last-child { margin-bottom: 0; }
     .changelog-version { font-family: monospace; font-weight: 500; color: #1a1a1a; }
   </style>
 </head>
@@ -66,9 +68,9 @@
   <div class="header">
     <div>
       <h1>Flutter builder management</h1>
-      <p>ACI runner と ACR イメージの管理</p>
+      <p>Manage ACI runner and ACR image</p>
     </div>
-    <div class="version-badge">v1.0.0</div>
+    <div class="version-badge">v1.1.0</div>
   </div>
 
   <div class="metrics">
@@ -87,7 +89,7 @@
   </div>
 
   <div class="section">
-    <div class="section-title">設定</div>
+    <div class="section-title">Configuration</div>
     <div class="card">
       <div class="config-row">
         <label class="config-label">STATUS_URL</label>
@@ -102,59 +104,63 @@
         <input class="config-input" id="cfg-upload" placeholder="https://func-....azurewebsites.net/api/upload-and-build?code=..." />
       </div>
       <div style="margin-top:10px;">
-        <button class="btn btn-primary" onclick="saveConfig()">保存</button>
+        <button class="btn btn-primary" onclick="saveConfig()">Save</button>
       </div>
     </div>
   </div>
 
   <div class="section">
-    <div class="section-title">ACI ログ</div>
+    <div class="section-title">ACI logs</div>
     <div class="card">
       <div class="refresh-row">
-        <span class="auto-label" id="auto-label">自動更新: 停止中</span>
+        <span class="auto-label" id="auto-label">Auto refresh: off</span>
         <div class="btn-row">
-          <button class="btn" onclick="fetchStatus()">更新</button>
-          <button class="btn" id="btn-auto" onclick="toggleAuto()">自動更新 ON</button>
-          <button class="btn btn-danger" onclick="stopACI()">ACI 停止</button>
+          <button class="btn" onclick="fetchStatus()">Refresh</button>
+          <button class="btn" id="btn-auto" onclick="toggleAuto()">Auto refresh ON</button>
+          <button class="btn btn-danger" onclick="stopACI()">Stop ACI</button>
         </div>
       </div>
-      <div class="log-box" id="log-box"><span class="log-empty">ログなし — 「更新」を押してください</span></div>
+      <div class="log-box" id="log-box"><span class="log-empty">No logs — press Refresh</span></div>
     </div>
   </div>
 
   <div class="section">
-    <div class="section-title">イメージ再ビルド</div>
+    <div class="section-title">Image rebuild</div>
     <div class="card">
       <div class="upload-grid">
         <div class="upload-box" id="box-dockerfile" onclick="document.getElementById('file-dockerfile').click()">
           <input type="file" id="file-dockerfile" onchange="onFileSelect('dockerfile', this)" />
           <div class="icon">📄</div>
           <div class="name" id="name-dockerfile">Dockerfile</div>
-          <div class="sub">クリックして選択</div>
+          <div class="sub">Click to select</div>
         </div>
         <div class="upload-box" id="box-entrypoint" onclick="document.getElementById('file-entrypoint').click()">
           <input type="file" id="file-entrypoint" onchange="onFileSelect('entrypoint', this)" />
           <div class="icon">📜</div>
           <div class="name" id="name-entrypoint">entrypoint.sh</div>
-          <div class="sub">クリックして選択</div>
+          <div class="sub">Click to select</div>
         </div>
       </div>
       <div class="btn-row">
-        <button class="btn btn-primary" id="btn-build" onclick="uploadAndBuild()" disabled>アップロード &amp; ビルド</button>
-        <button class="btn" onclick="clearFiles()">クリア</button>
+        <button class="btn btn-primary" id="btn-build" onclick="uploadAndBuild()" disabled>Upload &amp; Build</button>
+        <button class="btn" onclick="clearFiles()">Clear</button>
       </div>
       <div id="build-result" style="margin-top:10px; font-size:13px; color:#666;"></div>
     </div>
   </div>
 
   <div class="footer">
-    <span class="footer-left">tools/flutter-builder &nbsp;·&nbsp; v1.0.0</span>
-    <button class="changelog-btn" onclick="toggleChangelog()">更新履歴</button>
+    <span class="footer-left">tools/flutter-builder &nbsp;·&nbsp; v1.1.0</span>
+    <button class="changelog-btn" onclick="toggleChangelog()">Changelog</button>
   </div>
   <div class="changelog" id="changelog">
     <div class="changelog-item">
+      <span class="changelog-version">v1.1.0</span> &nbsp;2026-04-06<br>
+      UI translated to English. Added NotFound status handling — shows "Not running" when ACI does not exist.
+    </div>
+    <div class="changelog-item">
       <span class="changelog-version">v1.0.0</span> &nbsp;2026-04-06<br>
-      初回リリース。ACI ステータス確認・停止、Dockerfile アップロード &amp; ACR ビルドトリガー機能を実装。
+      Initial release. ACI status, stop, Dockerfile upload and ACR build trigger.
     </div>
   </div>
 </div>
@@ -162,7 +168,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const APP_VERSION = 'v1.0.0';
+  const APP_VERSION = 'v1.1.0';
   let autoTimer = null;
   let files = {};
 
@@ -183,7 +189,7 @@
       upload: document.getElementById('cfg-upload').value.trim()
     };
     localStorage.setItem('flutter-builder-config', JSON.stringify(c));
-    showToast('設定を保存しました');
+    showToast('Configuration saved');
   }
 
   function getConfig() {
@@ -202,24 +208,40 @@
     document.getElementById('changelog').classList.toggle('open');
   }
 
+  function statusDotClass(status) {
+    if (status === 'Running') return 'dot-running';
+    if (status === 'NotFound') return 'dot-notfound';
+    if (status === 'Terminated') return 'dot-stopped';
+    if (status === 'Failed') return 'dot-error';
+    return 'dot-unknown';
+  }
+
+  function statusLabel(status) {
+    if (status === 'NotFound') return 'Not running';
+    return status || '—';
+  }
+
   async function fetchStatus() {
     const cfg = getConfig();
-    if (!cfg.status) { showToast('STATUS_URL を設定してください'); return; }
+    if (!cfg.status) { showToast('Please set STATUS_URL'); return; }
     try {
       const res = await fetch(cfg.status);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
-      const dotClass = data.status === 'Running' ? 'dot-running'
-                     : data.status === 'Terminated' ? (data.exit_code === 0 ? 'dot-stopped' : 'dot-error')
-                     : 'dot-unknown';
-      document.getElementById('m-status').innerHTML = `<span class="status-dot ${dotClass}"></span>${data.status || '—'}`;
+
+      const dotClass = statusDotClass(data.status);
+      document.getElementById('m-status').innerHTML =
+        `<span class="status-dot ${dotClass}"></span>${statusLabel(data.status)}`;
       document.getElementById('m-exit').textContent = data.exit_code != null ? data.exit_code : '—';
-      document.getElementById('m-time').textContent = new Date().toLocaleTimeString('ja-JP');
+      document.getElementById('m-time').textContent = new Date().toLocaleTimeString('en-GB');
+
       const logBox = document.getElementById('log-box');
-      logBox.innerHTML = data.logs ? escapeHtml(data.logs) : '<span class="log-empty">ログなし</span>';
+      logBox.innerHTML = data.logs
+        ? escapeHtml(data.logs)
+        : '<span class="log-empty">No logs</span>';
       logBox.scrollTop = logBox.scrollHeight;
     } catch(e) {
-      showToast('取得失敗: ' + e.message);
+      showToast('Failed: ' + e.message);
     }
   }
 
@@ -229,27 +251,27 @@
     if (autoTimer) {
       clearInterval(autoTimer);
       autoTimer = null;
-      btn.textContent = '自動更新 ON';
-      label.textContent = '自動更新: 停止中';
+      btn.textContent = 'Auto refresh ON';
+      label.textContent = 'Auto refresh: off';
     } else {
       fetchStatus();
       autoTimer = setInterval(fetchStatus, 10000);
-      btn.textContent = '自動更新 OFF';
-      label.textContent = '自動更新: 10秒ごと';
+      btn.textContent = 'Auto refresh OFF';
+      label.textContent = 'Auto refresh: every 10s';
     }
   }
 
   async function stopACI() {
     const cfg = getConfig();
-    if (!cfg.stop) { showToast('STOP_URL を設定してください'); return; }
-    if (!confirm('ACI を停止しますか？')) return;
+    if (!cfg.stop) { showToast('Please set STOP_URL'); return; }
+    if (!confirm('Stop ACI?')) return;
     try {
       const res = await fetch(cfg.stop, { method: 'POST' });
       const text = await res.text();
-      showToast(res.ok ? 'ACI を停止しました' : '停止失敗: ' + text);
+      showToast(res.ok ? 'ACI stopped' : 'Failed: ' + text);
       if (res.ok) setTimeout(fetchStatus, 2000);
     } catch(e) {
-      showToast('停止失敗: ' + e.message);
+      showToast('Failed: ' + e.message);
     }
   }
 
@@ -278,11 +300,11 @@
 
   async function uploadAndBuild() {
     const cfg = getConfig();
-    if (!cfg.upload) { showToast('UPLOAD_URL を設定してください'); return; }
+    if (!cfg.upload) { showToast('Please set UPLOAD_URL'); return; }
     const btn = document.getElementById('btn-build');
     const result = document.getElementById('build-result');
     btn.disabled = true;
-    btn.textContent = 'アップロード中...';
+    btn.textContent = 'Uploading...';
     result.textContent = '';
     try {
       const fd = new FormData();
@@ -292,18 +314,18 @@
       const text = await res.text();
       if (res.ok) {
         result.style.color = '#3B6D11';
-        result.textContent = 'ビルド開始: ' + text;
-        showToast('ACR ビルドを開始しました');
+        result.textContent = 'Build started: ' + text;
+        showToast('ACR build triggered');
         clearFiles();
       } else {
         result.style.color = '#A32D2D';
-        result.textContent = 'エラー: ' + text;
+        result.textContent = 'Error: ' + text;
       }
     } catch(e) {
       result.style.color = '#A32D2D';
-      result.textContent = '失敗: ' + e.message;
+      result.textContent = 'Failed: ' + e.message;
     } finally {
-      btn.textContent = 'アップロード & ビルド';
+      btn.textContent = 'Upload & Build';
       checkBuildReady();
     }
   }
