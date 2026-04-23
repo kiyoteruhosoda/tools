@@ -17,7 +17,7 @@
 -->
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <script>
-const APP_VERSION = '1.3.8';
+const APP_VERSION = '1.3.9';
 </script>
 
 <style>
@@ -579,8 +579,10 @@ const APP_VERSION = '1.3.8';
         <div class="dot" style="background:var(--success);box-shadow:0 0 6px var(--success)"></div>
         preview
         <span style="margin-left:auto;display:flex;gap:8px;align-items:center;">
-          <span class="shortcut-hint">Scroll</span>
+          <span class="shortcut-hint">Ctrl+Scroll</span>
           <span style="color:var(--text-dim);font-size:10px;">Zoom</span>
+          <span class="shortcut-hint">Scroll</span>
+          <span style="color:var(--text-dim);font-size:10px;">Pan</span>
           <span class="shortcut-hint">Drag</span>
           <span style="color:var(--text-dim);font-size:10px;">Pan</span>
         </span>
@@ -625,7 +627,7 @@ const APP_VERSION = '1.3.8';
     </div>
     <div id="statusbar-right">
       <span style="color:var(--text-dim);font-size:10px;">
-        Alt+E: Toggle editor &nbsp;|&nbsp; Ctrl+Enter: Render &nbsp;|&nbsp; Ctrl+S: Save &nbsp;|&nbsp; Home: Fit &nbsp;|&nbsp; Ctrl+0: 1:1
+        Alt+E: Toggle editor &nbsp;|&nbsp; Ctrl+Enter: Render &nbsp;|&nbsp; Ctrl+S: Save &nbsp;|&nbsp; Home: Fit &nbsp;|&nbsp; Ctrl+0: 1:1 &nbsp;|&nbsp; Ctrl+Scroll: Zoom
       </span>
       <span style="color:var(--border);font-size:10px;margin:0 8px;">|</span>
       <span id="version-label" style="color:var(--text-dim);font-size:10px;font-family:var(--font-mono);"></span>
@@ -990,13 +992,24 @@ window.addEventListener('mouseup', () => {
 });
 
 // ──────────────────────────────────────────────
-//  Ctrl+Scroll zoom
+//  Wheel: pan / Ctrl+wheel zoom
 // ──────────────────────────────────────────────
 canvasWrap.addEventListener('wheel', e => {
   e.preventDefault();
-  const step = Math.max(0.02, state.zoom * 0.1);
-  const delta = e.deltaY < 0 ? step : -step;
-  setZoom(delta, e.clientX, e.clientY);
+  if (e.ctrlKey) {
+    const step = Math.max(0.02, state.zoom * 0.1);
+    const delta = e.deltaY < 0 ? step : -step;
+    setZoom(delta, e.clientX, e.clientY);
+  } else {
+    const PAN_SPEED = 1.0;
+    if (e.shiftKey) {
+      state.panX -= e.deltaY * PAN_SPEED;
+    } else {
+      state.panX -= e.deltaX * PAN_SPEED;
+      state.panY -= e.deltaY * PAN_SPEED;
+    }
+    applyTransform();
+  }
 }, { passive: false });
 
 // ──────────────────────────────────────────────
